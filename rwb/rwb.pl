@@ -119,7 +119,7 @@ my $deletecookie=0;
 my $user = undef;
 my $password = undef;
 my $logincomplain=0;
-
+my $signupcomplain=0;
 #
 # Get the user action and whether he just wants the form or wants us to
 # run the form
@@ -212,8 +212,34 @@ if ($action eq "login") {
   }
 } 
 
-
-#
+if ($action eq "sign-up") {
+  if ($run) {
+    #
+    #Sign-up attempt
+    #
+    $password = param('password');
+    if (ValidPassword($password)) {
+      $action = "base";
+      $run = 1;
+     
+      my $email = param('email');
+      my $user = param('user');
+      my $name=param('name');
+      my $error;
+      $error=UserAdd($name,$password,$email,$user);
+      if ($error) {
+        print "Can't sign up because: $error";
+      } else {
+        print "You're signed up $name $email as referred by $user\n";
+      }
+    } else {
+      $signupcomplain = 1;
+      $action = "sign-up";
+      $run = 0;
+    }
+  }
+}  
+ 
 # If we are being asked to log out, then if 
 # we have a cookie, we should delete it.
 #
@@ -322,7 +348,22 @@ if ($action eq "login") {
   }
 }
 
-
+if ($action eq "sign-up") {
+  if ($signupcomplain) {
+    print "Signup failed. The password you selected does not meet the criteria."
+  }
+  if ($signupcomplain or !$run) {
+    print start_form(-name=>'Login'),
+      h2('Signup for Red, White, and Blue'),
+        "Name:",textfield(-name=>'user'),p,
+         "Email:",textfield(-name=>'email'),p,
+          "Password:",password_field(-name=>'password'),p,
+            hidden(-name=>'act',default=>['login']),
+              hidden(-name=>'run',default=>['1']),
+                submit,
+                  end_form;
+  }
+}
 
 #
 # BASE
@@ -332,9 +373,9 @@ if ($action eq "login") {
 #
 #
 if ($action eq "base") {
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"committees\" checked><label for=\"committee\">Committee</label><br/>";
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"candidates\"><label for=\"candidate\">Candidate</label><br/>";
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"individuals\"><label for=\"individual\">Individual</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"committees\" checked><label for=\"committee\">Committee</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"candidates\"><label for=\"candidate\">Candidate</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"individuals\"><label for=\"individual\">Individual</label><br/>";
 
   print "<div id=\"cycles\">";
 
@@ -342,7 +383,7 @@ if ($action eq "base") {
   if (!$error) {
     my @cycles = sort {$a <=> $b} split(/\t/,$cycles);    
     foreach my $cycle (@cycles) {
-	print "<input type=\"checkbox\" class=\"checkbox-cycle\" name=\"$cycle\"><label for=\"$cycle\">$cycle</label>";
+	print "<input type=\"checkbox\" class=\"checkbox-cycle checkboxes\" name=\"$cycle\"><label for=\"$cycle\">$cycle</label>";
     }
   }
 
@@ -505,8 +546,35 @@ if ($action eq "near") {
 }
 
 
-if ($action eq "invite-user") { 
-  print h2("Invite User Functionality Is Unimplemented");
+if ($action eq "invite-user") {
+  if (!UserCan($user,"invite-users")) {
+    print h2('You do not have the required permissions to invite users.');
+  } else {
+    if (!$run) {
+      print start_form(-name=>'InviteUser'),
+        h2('Invite User'),
+              "Email: ", textfield(-name=>'email'),
+                p,
+                      hidden(-name=>'run',-default=>['1']),
+                        hidden(-name=>'act',-default=>['invite-user']),
+                          submit,
+                            end_form,
+                              hr;
+    } else {
+      my $email=param('email');
+      my $error;
+      my @chars = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"); 
+      my $key;
+      $key .= $chars[rand @chars] for (1,2,3,4,5,6,7,8); 
+      $error=UserInvite($key,$email,$user);
+      if ($error) {
+        print "Can't invite user because: $error";
+      } else {	
+        print "Invited user $email as referred by $user\n";
+      }
+    }
+  }
+  print "<p><a href=\"rwb.pl?act=base&run=1\">Return</a></p>"; 
 }
 
 if ($action eq "give-opinion-data") { 
@@ -944,6 +1012,29 @@ sub UserAdd {
 }
 
 #
+## Invite a user
+## call with email
+##
+## returns false on success, error string on failure.
+## 
+## UserInvite($key,$email,$referrer)
+##
+sub UserInvite {
+  my ($key, $email, $user) = @_; 
+  eval { ExecSQL($dbuser,$dbpasswd,
+                 "insert into invite_users (key,email,referrer) values (?,?,?)",undef,$key, $email, $user);};
+  my $body = "<div> You are invited to participate in rwb. <a href=\"https://murphy.wot.eecs.northwestern.edu/~jsb956/rwb/rwb.pl?act=sign-up&run=0&key=$key\"> Join here </a> </div>";
+  open(MAIL, "| /usr/sbin/sendmail -t");
+  print MAIL "To: $email\n";
+  print MAIL "From: jeffreybirori2019\@u.northwestern.edu\n";
+  print MAIL "Content-Type: text/html\n";
+  print MAIL "Subject: RWB Signup\n\n";
+  print MAIL $body;
+  close(MAIL);
+  return $@;
+}
+
+#
 # Delete a user
 # returns false on success, $error string on failure
 # 
@@ -997,6 +1088,16 @@ sub ValidUser {
   }
 }
 
+sub ValidPassword {
+  my ($password)=@_;
+  my @col;
+  eval {@col=ExecSQL($dbuser,$dbpasswd, "select count(*) from rwb_users where password=?","COL",$password);};
+  if ($@) {
+    return 0;
+  } else {
+    return !($col[0]>0);
+  }
+}
 
 #
 #
