@@ -60,7 +60,8 @@ create table invite_users (
 --
    key varchar(64) not null,
    email varchar(256) not null,
-   referer varchar(64) not null 
+   referer varchar(64) not null,
+   permissions varchar(256) not null 
 );
 
 --

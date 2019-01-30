@@ -212,34 +212,6 @@ if ($action eq "login") {
   }
 } 
 
-if ($action eq "sign-up") {
-  if ($run) {
-    #
-    #Sign-up attempt
-    #
-    $password = param('password');
-    if (ValidPassword($password)) {
-      $action = "base";
-      $run = 1;
-     
-      my $email = param('email');
-      my $user = param('user');
-      my $name=param('name');
-      my $error;
-      $error=UserAdd($name,$password,$email,$user);
-      if ($error) {
-        print "Can't sign up because: $error";
-      } else {
-        print "You're signed up $name $email as referred by $user\n";
-      }
-    } else {
-      $signupcomplain = 1;
-      $action = "sign-up";
-      $run = 0;
-    }
-  }
-}  
- 
 # If we are being asked to log out, then if 
 # we have a cookie, we should delete it.
 #
@@ -350,21 +322,70 @@ if ($action eq "login") {
 
 if ($action eq "sign-up") {
   if ($signupcomplain) {
-    print "Signup failed. The password you selected does not meet the criteria."
+   print "Signup failed. Make sure youre using the same email that you got the invite from and that your password and name is unique.";
   }
-  if ($signupcomplain or !$run) {
-    print start_form(-name=>'Login'),
-      h2('Signup for Red, White, and Blue'),
-        "Name:",textfield(-name=>'user'),p,
-         "Email:",textfield(-name=>'email'),p,
-          "Password:",password_field(-name=>'password'),p,
-            hidden(-name=>'act',default=>['login']),
-              hidden(-name=>'run',default=>['1']),
-                submit,
-                  end_form;
-  }
-}
+  if ($run) {
+    my $new_password = param('password');
+    my $email = param('email');
+    my $name = param('user');
+    my $key = param('key');
 
+    print "<p>Password: $new_password, email: $email, name: $name, key: $key </p>";
+    if (!RightUser($email, $key)) {
+      print "Please sign up using the email that was used to send you your invite";
+    } elsif (ValidSignUp($new_password, $email, $name)) {
+      print "<p> these are all valid credentials </p>";
+      my ($referrer, @perms, $error) = GetReferrerAndPerms($key, $name);
+      print "<p> This is your referrer:".$referrer."</p>";
+      my $error;      
+      $error=UserAdd($name,$new_password,$email,$referrer);
+      if ($error) {
+        print "Can't sign up because: $error";
+      } else {
+        print "You're signed up as $name\n";
+	foreach my $perm (@perms) {
+	  if (!(!$perm or $perm eq '')) {
+
+      	    $error = GiveUserPerm($name, $perm);
+	    if ($error) {
+	      print "An error occured while granting you the permission $perm, please contact the root.";
+	    }
+	  }
+	}
+	$error=DeleteFromInvites($key);
+	if ($error) {
+	  print "<p> You're invite link was not deleted because of: $error. <br> Doesn't matter, it won't work anymore annyways </p>";
+	} 
+      }
+    } else {
+      $signupcomplain = 1;
+      $action = "sign-up";
+      $run = 0;
+      print "The sign up credentials you entered are not valid.";
+    }
+
+  } else {
+    if (defined(param('key'))) {
+      my $unique_key = param('key');
+      if (ValidKey($unique_key)) {
+        print start_form(-name=>'Login'),
+          h2('Signup for Red, White, and Blue'),
+          "Name:",textfield(-name=>'user'),p,
+          "Email (same that your invite was sent to):",textfield(-name=>'email'),p,
+          "Password:",password_field(-name=>'password'),p,
+          hidden(-name=>'key',default=>[$unique_key]),
+	  hidden(-name=>'act',default=>['sign-up']),
+          hidden(-name=>'run',default=>['1']),
+          submit,
+          end_form;
+      } else {
+        print "This sign up link does not exist.";
+      }
+    } else {
+      print "This sign up link does not exist.";
+    }
+  } 
+}
 #
 # BASE
 #
@@ -551,22 +572,40 @@ if ($action eq "invite-user") {
     print h2('You do not have the required permissions to invite users.');
   } else {
     if (!$run) {
-      print start_form(-name=>'InviteUser'),
-        h2('Invite User'),
-              "Email: ", textfield(-name=>'email'),
-                p,
-                      hidden(-name=>'run',-default=>['1']),
-                        hidden(-name=>'act',-default=>['invite-user']),
-                          submit,
-                            end_form,
-                              hr;
+      my (@permissions, $error) = GetPermissions($user);
+      if (!$error) {
+        print start_form(-name=>'InviteUser'),
+          h2('Invite User'),
+          "Email: ", textfield(-name=>'email'),
+          h4('Which permissions would you like to give this person?');
+        for (my $i = 0; $i < $#permissions; $i++) {
+	  my $permission = @permissions[$i];
+	  print "<input type=\"checkbox\" name=\"$permission\"/> $permission <br/>";
+	  if ($i == ($#permissions - 1)) {
+            print p,
+              hidden(-name=>'run',-default=>['1']),
+              hidden(-name=>'act',-default=>['invite-user']),
+              submit,
+              end_form,
+              hr;
+	  } 
+        }
+      } else {
+        print "<p>Something went wrong while loading permissions (error: $error). Please reload the page</p>";
+      }
     } else {
+      my (@permissions, $error) = GetPermissions($user);
+      my $invitee_perms;
+      if (!$error) {
+	$invitee_perms = join(",", map { defined($_) ? $_  : "" } grep {defined(param($_))} @permissions);
+      }
+      print "<p> your permissions are: $invitee_perms okay";
       my $email=param('email');
       my $error;
-      my @chars = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"); 
+      my @chars = ("A".."Z", "a".."z", 1..9); 
       my $key;
-      $key .= $chars[rand @chars] for (1,2,3,4,5,6,7,8); 
-      $error=UserInvite($key,$email,$user);
+      $key .= $chars[rand @chars] for 1..8; 
+      $error=UserInvite($key,$email,$user,$invitee_perms);
       if ($error) {
         print "Can't invite user because: $error";
       } else {	
@@ -1012,6 +1051,21 @@ sub UserAdd {
 }
 
 #
+# Get the permissions of a specific user
+#
+sub GetPermissions {
+  my @rows;
+  my $out;
+  eval { @rows = ExecSQL($dbuser,$dbpasswd, "select action from rwb_permissions where name=?", undef,@_);};
+  if ($@) {
+    return (undef, $@);
+  }
+  my @permissions = map { defined($_) ? @{$_}[0] : "(null)" } @rows;
+  $out = "";
+  $out = join("\t", map { defined($_) ? @{$_} : "(null)" } @rows);
+  return (@permissions, $@);
+}
+#
 ## Invite a user
 ## call with email
 ##
@@ -1020,10 +1074,10 @@ sub UserAdd {
 ## UserInvite($key,$email,$referrer)
 ##
 sub UserInvite {
-  my ($key, $email, $user) = @_; 
+  my ($key, $email, $user, $permissions) = @_; 
   eval { ExecSQL($dbuser,$dbpasswd,
-                 "insert into invite_users (key,email,referrer) values (?,?,?)",undef,$key, $email, $user);};
-  my $body = "<div> You are invited to participate in rwb. <a href=\"https://murphy.wot.eecs.northwestern.edu/~jsb956/rwb/rwb.pl?act=sign-up&run=0&key=$key\"> Join here </a> </div>";
+                 "insert into invite_users (key,email,referer,permissions) values (?,?,?,?)",undef,$key, $email, $user,$permissions);};
+  my $body = "<div> You are invited to participate in rwb. <a href=\"https://murphy.wot.eecs.northwestern.edu/~jsb956/rwb/rwb.pl?act=sign-up&key=$key\"> Join here </a> </div>";
   open(MAIL, "| /usr/sbin/sendmail -t");
   print MAIL "To: $email\n";
   print MAIL "From: jeffreybirori2019\@u.northwestern.edu\n";
@@ -1097,6 +1151,62 @@ sub ValidPassword {
   } else {
     return !($col[0]>0);
   }
+}
+
+sub ValidSignUp {
+  my ($password, $email, $name) = @_;
+  my @col;
+  eval {
+    @col=ExecSQL($dbuser,$dbpasswd, "select count(*) from rwb_users where password=? or email=? or name=?", "COL", $password,$email,$name  );};
+  if ($@) {
+    return 0;
+  } else {
+    return !($col[0]>0);
+  }
+}
+
+sub RightUser {
+  my ($email, $key) = @_;
+  my @col;
+  eval {@col = ExecSQL($dbuser,$dbpasswd, "select count(*) from invite_users where key=? and email=?", "COL", $key, $email);};
+  if ($@) {
+    return 0;
+  } else {
+    return ($col[0]>0);
+  }
+}
+
+sub GetReferrerAndPerms {
+  my ($key, $name) = @_;
+  # Keys are unique so there will only be one row
+  my @rows;
+  eval { @rows = ExecSQL($dbuser,$dbpasswd, "select referer,permissions from invite_users where key=?", undef, $key);};
+  
+  if ($@) {
+    return (undef, undef, $@);
+  } else {
+    my $referrer = @{@rows[0]}[0];
+    my $permissions = @{@rows[0]}[1];
+    my @permissions = split(/,/, $permissions);
+    return ($referrer, @permissions, $@);
+  }   
+}
+
+sub DeleteFromInvites {
+  my ($key) = @_;
+  eval {ExecSQL($dbuser,$dbpasswd,"delete from invite_users where key=?", undef, $key);};
+  return $@;
+}
+
+sub ValidKey {
+  my ($key) = @_;
+  my @col;
+  eval {@col = ExecSQL($dbuser,$dbpasswd, "select count(*) from invite_users where key=?", "COL", $key);};
+  if ($@) {
+    return 0;
+  } else {
+    return ($col[0]>0);
+  } 
 }
 
 #
