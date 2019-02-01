@@ -77,8 +77,8 @@ use Time::ParseDate;
 #
 # You need to override these for access to your database
 #
-my $dbuser="jsb956";
-my $dbpasswd="zfIu05jYi";
+my $dbuser="ntt8355";
+my $dbpasswd="zsyd64OGb";
 
 #
 # You need to supply a google maps API key
@@ -86,7 +86,7 @@ my $dbpasswd="zfIu05jYi";
 # More info here:  
 #   https://developers.google.com/maps/documentation/javascript/get-api-key
 #
-my $googlemapskey="AIzaSyB9klUFTyF1cpZrV2297admNPqVTPHAOJw";
+my $googlemapskey="AIzaSyAiLgtFqcOR0CbCK41Mn8kg6ecwpk-UGb0";
 
 #
 # The session cookie will contain the user's name and password so that 
@@ -119,7 +119,7 @@ my $deletecookie=0;
 my $user = undef;
 my $password = undef;
 my $logincomplain=0;
-
+my $signupcomplain=0;
 #
 # Get the user action and whether he just wants the form or wants us to
 # run the form
@@ -212,8 +212,6 @@ if ($action eq "login") {
   }
 } 
 
-
-#
 # If we are being asked to log out, then if 
 # we have a cookie, we should delete it.
 #
@@ -322,8 +320,72 @@ if ($action eq "login") {
   }
 }
 
+if ($action eq "sign-up") {
+  if ($signupcomplain) {
+   print "Signup failed. Make sure youre using the same email that you got the invite from and that your password and name is unique.";
+  }
+  if ($run) {
+    my $new_password = param('password');
+    my $email = param('email');
+    my $name = param('user');
+    my $key = param('key');
 
+    print "<p>Password: $new_password, email: $email, name: $name, key: $key </p>";
+    if (!RightUser($email, $key)) {
+      print "Please sign up using the email that was used to send you your invite";
+    } elsif (ValidSignUp($new_password, $email, $name)) {
+      print "<p> these are all valid credentials </p>";
+      my ($referrer, @perms, $error) = GetReferrerAndPerms($key, $name);
+      print "<p> This is your referrer:".$referrer."</p>";
+      my $error;      
+      $error=UserAdd($name,$new_password,$email,$referrer);
+      if ($error) {
+        print "Can't sign up because: $error";
+      } else {
+        print "You're signed up as $name\n";
+	foreach my $perm (@perms) {
+	  if (!(!$perm or $perm eq '')) {
 
+      	    $error = GiveUserPerm($name, $perm);
+	    if ($error) {
+	      print "An error occured while granting you the permission $perm, please contact the root.";
+	    }
+	  }
+	}
+	$error=DeleteFromInvites($key);
+	if ($error) {
+	  print "<p> You're invite link was not deleted because of: $error. <br> Doesn't matter, it won't work anymore annyways </p>";
+	} 
+      }
+    } else {
+      $signupcomplain = 1;
+      $action = "sign-up";
+      $run = 0;
+      print "The sign up credentials you entered are not valid.";
+    }
+
+  } else {
+    if (defined(param('key'))) {
+      my $unique_key = param('key');
+      if (ValidKey($unique_key)) {
+        print start_form(-name=>'Login'),
+          h2('Signup for Red, White, and Blue'),
+          "Name:",textfield(-name=>'user'),p,
+          "Email (same that your invite was sent to):",textfield(-name=>'email'),p,
+          "Password:",password_field(-name=>'password'),p,
+          hidden(-name=>'key',default=>[$unique_key]),
+	  hidden(-name=>'act',default=>['sign-up']),
+          hidden(-name=>'run',default=>['1']),
+          submit,
+          end_form;
+      } else {
+        print "This sign up link does not exist.";
+      }
+    } else {
+      print "This sign up link does not exist.";
+    }
+  } 
+}
 #
 # BASE
 #
@@ -332,9 +394,10 @@ if ($action eq "login") {
 #
 #
 if ($action eq "base") {
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"committees\" checked><label for=\"committee\">Committee</label><br/>";
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"candidates\"><label for=\"candidate\">Candidate</label><br/>";
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type\" name=\"individuals\"><label for=\"individual\">Individual</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"committees\" checked><label for=\"committee\">Committee</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"candidates\"><label for=\"candidate\">Candidate</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"individuals\"><label for=\"individual\">Individual</label><br/>";
+  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"opinions\"><label for=\"opinion\">Opinion</label><br/>";
 
   print "<div id=\"cycles\">";
 
@@ -342,7 +405,7 @@ if ($action eq "base") {
   if (!$error) {
     my @cycles = sort {$a <=> $b} split(/\t/,$cycles);    
     foreach my $cycle (@cycles) {
-	print "<input type=\"checkbox\" class=\"checkbox-cycle\" name=\"$cycle\"><label for=\"$cycle\">$cycle</label>";
+	print "<input type=\"checkbox\" class=\"checkbox-cycle checkboxes\" name=\"$cycle\"><label for=\"$cycle\">$cycle</label>";
     }
   }
 
@@ -505,13 +568,124 @@ if ($action eq "near") {
 }
 
 
-if ($action eq "invite-user") { 
-  print h2("Invite User Functionality Is Unimplemented");
+if ($action eq "invite-user") {
+  if (!UserCan($user,"invite-users")) {
+    print h2('You do not have the required permissions to invite users.');
+  } else {
+    if (!$run) {
+      my (@permissions, $error) = GetPermissions($user);
+      if (!$error) {
+        print start_form(-name=>'InviteUser'),
+          h2('Invite User'),
+          "Email: ", textfield(-name=>'email'),
+          h4('Which permissions would you like to give this person?');
+        for (my $i = 0; $i < $#permissions; $i++) {
+	  my $permission = @permissions[$i];
+	  print "<input type=\"checkbox\" name=\"$permission\"/> $permission <br/>";
+	  if ($i == ($#permissions - 1)) {
+            print p,
+              hidden(-name=>'run',-default=>['1']),
+              hidden(-name=>'act',-default=>['invite-user']),
+              submit,
+              end_form,
+              hr;
+	  } 
+        }
+      } else {
+        print "<p>Something went wrong while loading permissions (error: $error). Please reload the page</p>";
+      }
+    } else {
+      my (@permissions, $error) = GetPermissions($user);
+      my $invitee_perms;
+      if (!$error) {
+	$invitee_perms = join(",", map { defined($_) ? $_  : "" } grep {defined(param($_))} @permissions);
+      }
+      print "<p> your permissions are: $invitee_perms okay";
+      my $email=param('email');
+      my $error;
+      my @chars = ("A".."Z", "a".."z", 1..9); 
+      my $key;
+      $key .= $chars[rand @chars] for 1..8; 
+      $error=UserInvite($key,$email,$user,$invitee_perms);
+      if ($error) {
+        print "Can't invite user because: $error";
+      } else {	
+        print "Invited user $email as referred by $user\n";
+      }
+    }
+  }
+  print "<p><a href=\"rwb.pl?act=base&run=1\">Return</a></p>"; 
 }
 
-if ($action eq "give-opinion-data") { 
-  print h2("Giving Location Opinion Data Is Unimplemented");
+if ($action eq "give-opinion-data") {
+  if (!UserCan($user, "give-opinion-data")){
+    print h2("you do not have the required permissions to give opinion data");
+  } else{
+    if (!$run) {
+        print header(-expires=>'now');
+
+        print "<html>";
+        print "<head>";
+        print "<title>Give Opinion Data</title>";
+        print "</head>";
+
+
+        print "<body>";
+
+        print "<script>";
+        print "\nvar field1 ;";
+        print "\n var field2;";
+        print "\nvar x;";
+        print "\nfunction getLocation() {";
+        print "\n  if (navigator.geolocation) {";
+        print "        navigator.geolocation.getCurrentPosition(showPosition);";
+        print "    } else {";
+        print "        x.innerHTML = 'Geolocation is not supported by this browser.';";
+        print    "} };\n";
+        print "function showPosition(position){";
+        print "   field1.value = position.coords.latitude;";
+        print "   field2.value = position.coords.longitude;";
+        print "};";
+
+        print "\nwindow.onload = function() {";
+        print "  field1 = document.getElementById('latfield');";
+        print "  field2 = document.getElementById('longfield');";
+        print "  var x = document.getElementById('demo');";
+        print "  getLocation()";
+        print "};\n";
+        print "</script>\n";
+        print ;
+        print "\n";
+
+        print start_form(-name=>'GiveOpinionData'),
+                h2('Color the current location with opinion data. The value -1 corresponds to red, 0 corresponds to white, and 1 corresponds to blue'),
+                        "color: ", textfield(-name=>'color'),
+                        p,
+                                "Latitude: ", textfield(-name=>'lati', -id=>'latfield'),
+                                p,
+                                        "Longitude: ", textfield(-name=>'longe', -id=>'longfield'),
+                                                p,
+                                                        hidden(-name=>'run',-default=>['1']),
+                                                          hidden(-name=>'act',-default=>['give-opinion-data']),
+                                                                submit,
+                                                                      end_form,
+                                                                            hr;
+    } else {
+      my $color=param('color');
+      my $long=param('longe');
+      my $lat=param('lati');
+      my $error;
+      $error=UserGiveOpinionData($user,$color,$lat,$long);
+      if ($error) {
+        print "Can't give opinion data because: $error";
+      } else {
+        print "Opinion data with the color $color has been provided succesfully\n";
+      }
+    }
+  }
 }
+
+
 
 if ($action eq "give-cs-ind-data") { 
   print h2("Giving Crowd-sourced Individual Geolocations Is Unimplemented");
@@ -944,6 +1118,59 @@ sub UserAdd {
 }
 
 #
+# Get the permissions of a specific user
+#
+sub GetPermissions {
+  my @rows;
+  my $out;
+  eval { @rows = ExecSQL($dbuser,$dbpasswd, "select action from rwb_permissions where name=?", undef,@_);};
+  if ($@) {
+    return (undef, $@);
+  }
+  my @permissions = map { defined($_) ? @{$_}[0] : "(null)" } @rows;
+  $out = "";
+  $out = join("\t", map { defined($_) ? @{$_} : "(null)" } @rows);
+  return (@permissions, $@);
+}
+#
+## Invite a user
+## call with email
+##
+## returns false on success, error string on failure.
+## 
+## UserInvite($key,$email,$referrer)
+##
+sub UserInvite {
+  my ($key, $email, $user, $permissions) = @_; 
+  eval { ExecSQL($dbuser,$dbpasswd,
+                 "insert into invite_users (key,email,referer,permissions) values (?,?,?,?)",undef,$key, $email, $user,$permissions);};
+  my $body = "<div> You are invited to participate in rwb. <a href=\"https://murphy.wot.eecs.northwestern.edu/~jsb956/rwb/rwb.pl?act=sign-up&key=$key\"> Join here </a> </div>";
+  open(MAIL, "| /usr/sbin/sendmail -t");
+  print MAIL "To: $email\n";
+  print MAIL "From: jeffreybirori2019\@u.northwestern.edu\n";
+  print MAIL "Content-Type: text/html\n";
+  print MAIL "Subject: RWB Signup\n\n";
+  print MAIL $body;
+  close(MAIL);
+  return $@;
+}
+
+#
+# Give opinion data for a locaiton
+# call with color, latitude, and longitude
+#
+# returns false on success, error string on failure
+#
+# UserGiveOpinionData($color, $latitude, $longitude, $submitter)
+#
+sub UserGiveOpinionData {
+  my ($user,$color,$lat,$long) = @_;
+    eval { ExecSQL($dbuser,$dbpasswd,
+                             "insert into rwb_opinions (submitter,color,latitude,longitude) values (?,?,?,?)",undef,$user,$color,$lat,$long);};
+                              return $@;
+}
+
+#
 # Delete a user
 # returns false on success, $error string on failure
 # 
@@ -997,6 +1224,72 @@ sub ValidUser {
   }
 }
 
+sub ValidPassword {
+  my ($password)=@_;
+  my @col;
+  eval {@col=ExecSQL($dbuser,$dbpasswd, "select count(*) from rwb_users where password=?","COL",$password);};
+  if ($@) {
+    return 0;
+  } else {
+    return !($col[0]>0);
+  }
+}
+
+sub ValidSignUp {
+  my ($password, $email, $name) = @_;
+  my @col;
+  eval {
+    @col=ExecSQL($dbuser,$dbpasswd, "select count(*) from rwb_users where password=? or email=? or name=?", "COL", $password,$email,$name  );};
+  if ($@) {
+    return 0;
+  } else {
+    return !($col[0]>0);
+  }
+}
+
+sub RightUser {
+  my ($email, $key) = @_;
+  my @col;
+  eval {@col = ExecSQL($dbuser,$dbpasswd, "select count(*) from invite_users where key=? and email=?", "COL", $key, $email);};
+  if ($@) {
+    return 0;
+  } else {
+    return ($col[0]>0);
+  }
+}
+
+sub GetReferrerAndPerms {
+  my ($key, $name) = @_;
+  # Keys are unique so there will only be one row
+  my @rows;
+  eval { @rows = ExecSQL($dbuser,$dbpasswd, "select referer,permissions from invite_users where key=?", undef, $key);};
+  
+  if ($@) {
+    return (undef, undef, $@);
+  } else {
+    my $referrer = @{@rows[0]}[0];
+    my $permissions = @{@rows[0]}[1];
+    my @permissions = split(/,/, $permissions);
+    return ($referrer, @permissions, $@);
+  }   
+}
+
+sub DeleteFromInvites {
+  my ($key) = @_;
+  eval {ExecSQL($dbuser,$dbpasswd,"delete from invite_users where key=?", undef, $key);};
+  return $@;
+}
+
+sub ValidKey {
+  my ($key) = @_;
+  my @col;
+  eval {@col = ExecSQL($dbuser,$dbpasswd, "select count(*) from invite_users where key=?", "COL", $key);};
+  if ($@) {
+    return 0;
+  } else {
+    return ($col[0]>0);
+  } 
+}
 
 #
 #

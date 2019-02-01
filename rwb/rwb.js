@@ -353,7 +353,14 @@ Start = function(location) {
 	google.maps.event.addListener(map,"bounds_changed",ViewShift);
 	google.maps.event.addListener(map,"center_changed",ViewShift);
 	google.maps.event.addListener(map,"zoom_changed",ViewShift);
+	var checkboxes = $('.checkboxes');
 
+	for (var i = 0; i < checkboxes.length; i++) {
+		checkboxes[i].addEventListener('change', function() {
+			console.log('checked');
+			ViewShift();
+		});
+	}
 //
 // Finally, tell the browser that if the current location changes, it
 // should call back to our "Reposition" function (defined above)

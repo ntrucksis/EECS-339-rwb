@@ -54,6 +54,15 @@ create table rwb_users (
   constraint sane_referer check (name='root' or name<>referer)
 );
 
+create table invite_users (
+--
+-- Each user must have a name and a unique one at that.
+--
+   key varchar(64) not null,
+   email varchar(256) not null,
+   referer varchar(64) not null,
+   permissions varchar(256) not null 
+);
 
 --
 -- the list of things that a user can do on the system
