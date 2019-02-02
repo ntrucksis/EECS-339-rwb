@@ -397,8 +397,9 @@ if ($action eq "base") {
   print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"committees\" checked><label for=\"committee\">Committee</label><br/>";
   print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"candidates\"><label for=\"candidate\">Candidate</label><br/>";
   print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"individuals\"><label for=\"individual\">Individual</label><br/>";
-  print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"opinions\"><label for=\"opinion\">Opinion</label><br/>";
-
+  if (UserCan($user,"query-opinion-data")) {
+    print "<input type=\"checkbox\" class=\"checkbox-fec-type checkboxes\" name=\"opinions\"><label for=\"opinion\">Opinion</label><br/>";
+  }
   print "<div id=\"cycles\">";
 
   my ($cycles, $error) = Cycles();
@@ -563,9 +564,31 @@ if ($action eq "near") {
       } else {
 	print $str;
       }
+	my $OpinionColor;
+	my @results = AvgStddevColor($latne,$longne,$latsw,$longsw);
+	
+	my $avg = $results[0];
+	$avg = @{$avg}[0];
+	my $stddev = $results[0];
+	$stddev = @{$stddev}[1];
+
+	if ($avg > 0){ 
+	  $OpinionColor = "BLUE";
+	} elsif ($avg < 0){
+	  $OpinionColor = "RED";
+	} else {
+	  $OpinionColor = "WHITE";
+	}
+
+	   print "<h3>Aggregate Opinion Statistics</h3>";
+	   print "<table border bgcolor=$OpinionColor>
+		  <tr><th>Average</th><th>Standard Deviation</th></tr>
+		  <tr><td>$avg</td><td>$stddev</td></tr>
+		  </table>";
+	}
     }
-  }
 }
+
 
 
 if ($action eq "invite-user") {
@@ -1048,6 +1071,22 @@ sub Opinions {
     }
   }
 }
+
+#
+# Gets the average and standard deviation of colors on the on-screen map
+#
+sub AvgStddevColor{
+  my ($latne, $longne, $latsw, $longsw) = @_;
+  my @rows;
+  eval { @rows = ExecSQL($dbuser, $dbpasswd, "select avg(color), stddev(color) from rwb_opinions where latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne); };
+  if ($@) { 
+    return (undef,$@);
+  } else {
+    return (@rows,$@);
+  }
+}
+
+
 
 #
 # Generate a table of available permissions

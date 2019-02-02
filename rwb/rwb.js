@@ -91,6 +91,34 @@ UpdateMapById = function(id, tag) {
 			lat = cols[0],
 			long = cols[1];
 
+			if (id=="opinion_data") {
+			  color = cols[2];
+			if (color == 1 ){
+			  markers.push(new google.maps.Marker({
+				  map: map,
+				  position: new google.maps.LatLng(lat,long),
+				  title: tag+"\n"+cols.join("\n"),
+				  icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+			  }));
+		        } 
+			if (color == -1) {
+			   markers.push(new google.maps.Marker({
+                                  map: map,
+                                  position: new google.maps.LatLng(lat,long),
+                                  title: tag+"\n"+cols.join("\n"),
+                                  icon: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
+			   }));
+			}				
+			if (color == 0) {
+			   markers.push(new google.maps.Marker({
+                                  map: map,
+                                  position: new google.maps.LatLng(lat,long),
+                                  title: tag+"\n"+cols.join("\n"),
+                                  icon: 'http://labs.google.com/ridefinder/images/mm_20_white.png'
+                           }));
+			} 	
+			} else { 
+
 // then add them to the map.   Here the "new google.maps.Marker"
 // creates the marker and adds it to the map at the lat/long position
 // and "markers.push" adds it to our list of markers so we can
@@ -100,7 +128,8 @@ UpdateMapById = function(id, tag) {
 			position: new google.maps.LatLng(lat,long),
 			title: tag+"\n"+cols.join("\n")
 		}));
-
+	
+	    }
 	}
 },
 
